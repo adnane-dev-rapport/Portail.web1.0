@@ -88,6 +88,8 @@ export const handleLogin: RequestHandler = async (req, res) => {
   try {
     const { first_name, last_name, generated_id, password } = req.body;
 
+    console.log('🔐 Login attempt:', { first_name, last_name, generated_id, password });
+
     // Validate required fields
     if (!first_name || !last_name || !generated_id || !password) {
       return res.status(400).json({
@@ -96,14 +98,18 @@ export const handleLogin: RequestHandler = async (req, res) => {
     }
 
     // Query users table to find user with matching first_name, last_name and generated_id
+    console.log('🔍 Searching for user with:', { first_name, last_name, generated_id });
+
     const user = await queryOne(
-      `SELECT * FROM users 
+      `SELECT * FROM users
        WHERE first_name = $1 AND last_name = $2 AND generated_id = $3`,
       [first_name, last_name, generated_id]
     );
 
+    console.log('📊 Query result:', user ? 'User found' : 'User NOT found');
+
     if (!user) {
-      console.error("Login error - user not found");
+      console.error("❌ Login error - user not found with:", { first_name, last_name, generated_id });
       return res.status(401).json({
         error: "بيانات الدخول غير صحيحة - تأكد من الاسم ورقم العضو"
       });
