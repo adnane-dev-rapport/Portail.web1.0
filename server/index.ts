@@ -42,6 +42,101 @@ export function createServer() {
     res.json({ success: true, message: "Webhook endpoint is working correctly" });
   });
 
+  // Test message endpoint (for dashboard testing)
+  app.post("/api/whatsapp/test-message", async (req, res) => {
+    try {
+      const { message, to, analyzeChars } = req.body;
+
+      if (!message || !to) {
+        return res.status(400).json({ error: "Message et destinataire requis" });
+      }
+
+      const accountSid = process.env.TWILIO_ACCOUNT_SID;
+      const authToken = process.env.TWILIO_AUTH_TOKEN;
+      const fromNumber = process.env.TWILIO_WHATSAPP_NUMBER;
+
+      // Log character analysis
+      if (analyzeChars) {
+        console.log(`\n📊 ANALYSE CARACTÈRE PAR CARACTÈRE:`);
+        console.log(`📝 Raisage total: ${message.length} caractères`);
+        for (let i = 0; i < message.length; i++) {
+          const char = message[i];
+          const code = char.charCodeAt(0);
+          console.log(`[${String(i + 1).padStart(3, "0")}] "${char}" (Unicode: ${code})`);
+        }
+        console.log(`✓ Analyse complète\n`);
+      }
+
+      if (!accountSid || !authToken || !fromNumber) {
+        console.error("❌ Twilio non configuré - utilisation du mode TEST");
+        return res.json({
+          success: true,
+          messageSid: `TEST_${Date.now()}`,
+          message: "Message en mode test (Twilio non configuré)",
+          charAnalysis: Array.from(message).map((char, i) => ({
+            index: i + 1,
+            char,
+            unicode: char.charCodeAt(0),
+          })),
+        });
+      }
+
+      console.log(`🔄 Envoi du message via Twilio...`);
+      console.log(`De: ${fromNumber}`);
+      console.log(`À: ${to}`);
+      console.log(`Message: ${message}`);
+
+      const response = await fetch(
+        `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            Authorization: `Basic ${Buffer.from(
+              `${accountSid}:${authToken}`
+            ).toString("base64")}`,
+          },
+          body: new URLSearchParams({
+            From: fromNumber,
+            To: to,
+            Body: message,
+          }).toString(),
+        }
+      );
+
+      if (!response.ok) {
+        const error = await response.text();
+        console.error("❌ Erreur Twilio:", error);
+        return res.status(500).json({
+          error: "Impossible d'envoyer le message",
+          details: error,
+        });
+      }
+
+      const data = await response.json();
+      const messageSid = (data as any).sid;
+
+      console.log(`✅ Message envoyé avec succès!`);
+      console.log(`📨 SID: ${messageSid}`);
+
+      res.json({
+        success: true,
+        messageSid,
+        charAnalysis: Array.from(message).map((char, i) => ({
+          index: i + 1,
+          char,
+          unicode: char.charCodeAt(0),
+        })),
+      });
+    } catch (error) {
+      console.error("❌ Erreur:", error);
+      res.status(500).json({
+        error: "Erreur serveur",
+        details: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
+
   // Ideas routes
   app.get("/api/ideas", handleGetIdeas);
   app.post("/api/ideas/send-notification", handleSendIdeaNotification);
