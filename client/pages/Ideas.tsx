@@ -1,6 +1,14 @@
 import { useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import Layout from "@/components/Layout";
+import { toast } from "sonner";
+
+interface LogEntry {
+  timestamp: string;
+  type: "info" | "success" | "error" | "debug";
+  message: string;
+  details?: string;
+}
 
 export default function Ideas() {
   const { user } = useAuth();
@@ -14,6 +22,20 @@ export default function Ideas() {
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [showLogs, setShowLogs] = useState(false);
+
+  const addLog = (
+    type: LogEntry["type"],
+    message: string,
+    details?: string
+  ) => {
+    const timestamp = new Date().toLocaleTimeString("ar-MA");
+    setLogs((prev) => [
+      { timestamp, type, message, details },
+      ...prev,
+    ]);
+  };
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
@@ -46,6 +68,17 @@ export default function Ideas() {
     return Object.keys(newErrors).length === 0;
   };
 
+  const analyzeMessageCharByChar = (message: string) => {
+    addLog("debug", "📊 تحليل الرسالة حرف بحرف:");
+    let charAnalysis = "";
+    for (let i = 0; i < message.length; i++) {
+      const char = message[i];
+      const code = char.charCodeAt(0);
+      charAnalysis += `[${i + 1}] "${char}" (Unicode: ${code})\n`;
+    }
+    addLog("debug", "تفاصيل الأحرف:", charAnalysis);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -54,31 +87,96 @@ export default function Ideas() {
     }
 
     setLoading(true);
+    setShowLogs(true);
+    setLogs([]); // Clear previous logs
+
+    // Build the full message for Twilio
+    const fullMessage = `
+💡 *فكرة جديدة* 💡
+
+📌 *العنوان:* ${formData.title}
+
+📝 *الشرح:*
+${formData.description}
+
+💰 *الميزانية المقترحة:* ${formData.budget || "غير محدد"} درهم
+
+📋 *الاحتياجات:*
+${formData.requirements || "لم تحدد"}
+
+👤 *صاحب الفكرة:* ${user?.first_name || "مستخدم"} ${user?.last_name || ""}
+
+⏰ *الوقت:* ${new Date().toLocaleString("ar-MA")}
+    `.trim();
+
+    addLog("info", "🚀 بدء إرسال الفكرة...");
+    addLog("info", `📌 العنوان: ${formData.title}`);
+    addLog("info", `👤 المرسل: ${user?.first_name || "مستخدم"}`);
+    addLog("info", `📏 طول الرسالة: ${fullMessage.length} حرف`);
+
+    // Analyze message char by char
+    analyzeMessageCharByChar(fullMessage);
 
     try {
-      // Send via Twilio WhatsApp
-      await fetch("/api/ideas/send-notification", {
+      addLog("debug", "🔄 إرسال الطلب إلى خادم الإشعارات...");
+
+      const response = await fetch("/api/ideas/send-notification", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ideaTitle: formData.title,
           ideaDescription: formData.description,
-          authorName: user?.first_name || "Anonyme",
+          authorName: user?.first_name || "مستخدم",
         }),
-      }).catch(console.error);
+      });
 
-      console.log("Idea submitted:", formData);
-      setSubmitted(true);
-      setTimeout(() => {
-        setFormData({ title: "", description: "", budget: "", requirements: "" });
-        setSubmitted(false);
-      }, 3000);
+      const data = await response.json();
+
+      if (!response.ok) {
+        addLog("error", "❌ فشل الإرسال", JSON.stringify(data, null, 2));
+        toast.error(`خطأ: ${data.error}`);
+        setErrors({ submit: data.error || "حدث خطأ أثناء الإرسال" });
+      } else {
+        addLog("success", "✅ تم إرسال الفكرة بنجاح!");
+        if (data.messageSid) {
+          addLog("success", `📨 معرّف الرسالة: ${data.messageSid}`);
+        }
+        toast.success("تم إرسال فكرتك بنجاح!");
+
+        // Reset form after success
+        setTimeout(() => {
+          setFormData({ title: "", description: "", budget: "", requirements: "" });
+          setSubmitted(true);
+          setTimeout(() => setSubmitted(false), 3000);
+        }, 1500);
+      }
     } catch (error) {
-      console.error("Error submitting idea:", error);
+      const errorMsg = error instanceof Error ? error.message : "خطأ غير معروف";
+      addLog("error", "❌ خطأ في الاتصال:", errorMsg);
+      toast.error("خطأ في الاتصال بالخادم");
       setErrors({ submit: "حدث خطأ أثناء الإرسال. حاول لاحقاً." });
     } finally {
       setLoading(false);
     }
+  };
+
+  const downloadLogs = () => {
+    const logsText = logs
+      .map(
+        (log) =>
+          `[${log.timestamp}] [${log.type.toUpperCase()}] ${log.message}\n${
+            log.details ? log.details + "\n" : ""
+          }`
+      )
+      .join("\n");
+
+    const blob = new Blob([logsText], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `idea-submission-logs-${Date.now()}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -257,6 +355,56 @@ export default function Ideas() {
               </li>
             </ul>
           </div>
+
+          {/* Logs Panel - Shown after submission attempt */}
+          {showLogs && (
+            <div className="mt-8">
+              <div className="bg-gray-900 rounded-lg shadow-md p-4 border border-gray-700">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-lg font-bold text-white">📋 سجل الإرسال</h2>
+                  <button
+                    onClick={downloadLogs}
+                    className="text-sm px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
+                    title="تحميل السجلات"
+                  >
+                    💾 تحميل
+                  </button>
+                </div>
+
+                {/* Logs List */}
+                <div className="space-y-2 font-mono text-sm max-h-96 overflow-y-auto">
+                  {logs.length === 0 ? (
+                    <div className="text-gray-500 text-center py-4">
+                      جاري معالجة الفكرة...
+                    </div>
+                  ) : (
+                    logs.map((log, idx) => {
+                      const colors = {
+                        info: "text-blue-400",
+                        success: "text-green-400",
+                        error: "text-red-400",
+                        debug: "text-yellow-400",
+                      };
+
+                      return (
+                        <div key={idx} className={colors[log.type]}>
+                          <div>
+                            <span className="text-gray-500">[{log.timestamp}]</span>{" "}
+                            {log.message}
+                          </div>
+                          {log.details && (
+                            <div className="text-gray-400 text-xs ml-4 whitespace-pre-wrap break-words">
+                              {log.details}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </Layout>
