@@ -12,7 +12,7 @@ interface LogEntry {
 export default function Dashboard() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [testMessage, setTestMessage] = useState("اختبار الرسالة 🎉");
-  const [recipientPhone, setRecipientPhone] = useState("whatsapp:+");
+  const [recipientPhone, setRecipientPhone] = useState("whatsapp:+212612989463");
   const [loading, setLoading] = useState(false);
 
   const addLog = (
