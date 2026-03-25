@@ -1,56 +1,36 @@
-# Netlify Configuration for Scoutisme Hassania Safi
-# This file configures the build, deployment, and redirect rules for Netlify
+# Netlify Configuration for Fusion Starter
+# This configuration enables the full-stack app to run on Netlify Functions
 
 [build]
-  # Build command - compiles both client and server
   command = "pnpm build"
-  
-  # Directory containing the built application
   publish = "dist/spa"
-  
-  # Node version for the build
-  node_version = "20.x"
+  functions = "netlify/functions"
 
-# Environment variables
-[build.environment]
-  # These can be overridden in Netlify UI
-  NODE_ENV = "production"
+# Environment variables (set these in Netlify dashboard)
+[env.production]
+  # Supabase - Required for database/auth
+  SUPABASE_URL = "https://hwglhastcmqgrvvxmaae.supabase.co"
+  SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh3Z2xoYXN0Y21xZ3J2dnhtYWFlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3MDMzNzgsImV4cCI6MjA4OTI3OTM3OH0.AygQOrS3YAvUgbjHW_ypCMWNqH7pIY6U6NUm7Pgt_Go"
+  SUPABASE_SERVICE_ROLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh3Z2xoYXN0Y21xZ3J2dnhtYWFlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MzcwMzM3OCwiZXhwIjoyMDg5Mjc5Mzc4fQ.d7Hp-2bpZqvB673ZGE09Eii-BJSo5SZfZvlVSDn5uBc"
 
-# Rewrite rules for single-page app (SPA)
-# This ensures React Router works correctly
+  # Twilio - Required for WhatsApp notifications
+  TWILIO_ACCOUNT_SID = "AC263af387b4c70921cf392a7b125de152"
+  TWILIO_AUTH_TOKEN = "e6a72ccccfeb9e2de21f768afd5cafa1"
+  TWILIO_WHATSAPP_NUMBER = "whatsapp:+14155238886"
+  ADMIN_WHATSAPP = "whatsapp:+212612989463"
+
+# Redirect all non-API routes to index.html (SPA routing)
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
 
-# Security headers
-[[headers]]
-  for = "/*"
-  [headers.values]
-    X-Content-Type-Options = "nosniff"
-    X-Frame-Options = "SAMEORIGIN"
-    X-XSS-Protection = "1; mode=block"
-    Referrer-Policy = "strict-origin-when-cross-origin"
-    Permissions-Policy = "geolocation=(), microphone=(), camera=()"
+# API endpoint redirects to serverless functions
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api/:splat"
+  status = 200
 
-# Cache control for static assets
-[[headers]]
-  for = "/*.{js,css,svg,woff2,png,jpg,jpeg,gif}"
-  [headers.values]
-    Cache-Control = "public, max-age=31536000, immutable"
-
-# Cache control for index.html (should not be cached)
-[[headers]]
-  for = "/index.html"
-  [headers.values]
-    Cache-Control = "no-cache, no-store, must-revalidate"
-
-# API redirects (if needed in future)
-# [[redirects]]
-#   from = "/api/*"
-#   to = "/.netlify/functions/:splat"
-#   status = 200
-
-# Success message
-[build.processing]
-  text-compression = true
+[functions]
+  node_bundler = "esbuild"
+  external_node_modules = ["express"]
