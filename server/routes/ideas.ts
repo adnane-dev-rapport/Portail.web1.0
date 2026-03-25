@@ -37,7 +37,7 @@ export const handleSendIdeaNotification: RequestHandler = async (req, res) => {
   try {
     const accountSid = process.env.TWILIO_ACCOUNT_SID;
     const authToken = process.env.TWILIO_AUTH_TOKEN;
-    const fromNumber = process.env.TWILIO_PHONE_NUMBER;
+    const fromNumber = process.env.TWILIO_WHATSAPP_NUMBER;
     const adminWhatsApp = process.env.ADMIN_WHATSAPP;
 
     // Vérifier que Twilio est configuré
