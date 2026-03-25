@@ -1,10 +1,5 @@
 import { RequestHandler } from "express";
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(
-  process.env.SUPABASE_URL || "",
-  process.env.SUPABASE_SERVICE_ROLE_KEY || ""
-);
+import { queryMany, query } from "../lib/db";
 
 /**
  * Fetch all ideas from WhatsApp
@@ -12,17 +7,11 @@ const supabase = createClient(
  */
 export const handleGetIdeas: RequestHandler = async (req, res) => {
   try {
-    const { data, error } = await supabase
-      .from("ideas")
-      .select("*")
-      .order("created_at", { ascending: false });
+    const ideas = await queryMany(
+      `SELECT * FROM ideas ORDER BY created_at DESC`
+    );
 
-    if (error) {
-      console.error("Error fetching ideas:", error);
-      return res.status(500).json({ error: "Failed to fetch ideas" });
-    }
-
-    res.json({ success: true, ideas: data || [] });
+    res.json({ success: true, ideas: ideas || [] });
   } catch (error) {
     console.error("Error fetching ideas:", error);
     res.status(500).json({ error: "Server error" });

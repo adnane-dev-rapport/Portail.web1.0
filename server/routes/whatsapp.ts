@@ -1,4 +1,5 @@
 import { RequestHandler } from "express";
+import { query } from "../lib/db";
 
 /**
  * Send registration data to admin via WhatsApp
@@ -82,28 +83,25 @@ export const handleIncomingIdea: RequestHandler = async (req, res) => {
 
     console.log(`✓ New idea received from ${from}: ${body}`);
 
-    // Save idea to Supabase (as anonymous WhatsApp submission)
-    const { createClient } = await import("@supabase/supabase-js");
-    const supabase = createClient(
-      process.env.SUPABASE_URL || "",
-      process.env.SUPABASE_SERVICE_ROLE_KEY || ""
-    );
-
+    // Save idea to PostgreSQL (as anonymous WhatsApp submission)
     // Create a system user ID for WhatsApp ideas
     const whatsappUserId = "00000000-0000-0000-0000-000000000000";
 
-    const { data, error: saveError } = await supabase.from("ideas").insert({
-      created_by: whatsappUserId,
-      title: `💭 فكرة من WhatsApp`,
-      description: body,
-      contact_info: from,
-      status: "submitted",
-    }).select();
+    try {
+      const result = await query(
+        `INSERT INTO ideas (created_by, title, description, contact_info, status)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING id, created_by, title`,
+        [whatsappUserId, "💭 فكرة من WhatsApp", body, from, "submitted"]
+      );
 
-    if (saveError) {
-      console.error("❌ Error saving idea to Supabase:", saveError);
-    } else {
-      console.log("✓ Idea saved successfully:", data);
+      if (result.rows.length > 0) {
+        console.log("✓ Idea saved successfully:", result.rows[0]);
+      } else {
+        console.error("❌ Error saving idea to PostgreSQL: No rows returned");
+      }
+    } catch (saveError) {
+      console.error("❌ Error saving idea to PostgreSQL:", saveError);
     }
 
     // Send confirmation message
