@@ -2,23 +2,43 @@ import { Pool, QueryResult } from 'pg';
 
 // Get DATABASE_URL from environment
 // Netlify provides NETLIFY_DATABASE_URL for Neon
+// Falls back to Supabase for backward compatibility during dev
 const databaseUrl = process.env.NETLIFY_DATABASE_URL || 
                    process.env.DATABASE_URL || 
-                   process.env.SUPABASE_URL; // Fallback for local dev
+                   process.env.SUPABASE_URL;
 
-if (!databaseUrl) {
-  throw new Error(
-    'No database URL found. Set NETLIFY_DATABASE_URL, DATABASE_URL, or SUPABASE_URL'
-  );
+// Log what we're using
+if (databaseUrl) {
+  console.log('✓ Database configured:', databaseUrl.substring(0, 30) + '...');
+} else {
+  console.warn('⚠️  No database URL found - queries will fail');
 }
 
-// Create a connection pool
-const pool = new Pool({
-  connectionString: databaseUrl,
-  ssl: {
-    rejectUnauthorized: false, // Required for Neon on Netlify
-  },
-});
+// Create a connection pool (lazy-loaded on first query)
+let pool: Pool | null = null;
+
+function getPool(): Pool {
+  if (!pool) {
+    if (!databaseUrl) {
+      throw new Error(
+        'No database URL found. Set NETLIFY_DATABASE_URL, DATABASE_URL, or SUPABASE_URL'
+      );
+    }
+
+    pool = new Pool({
+      connectionString: databaseUrl,
+      ssl: {
+        rejectUnauthorized: false, // Required for Neon on Netlify
+      },
+    });
+
+    pool.on('error', (err) => {
+      console.error('Unexpected error on idle client', err);
+    });
+  }
+
+  return pool;
+}
 
 // Query function with error handling
 export async function query<T = any>(
@@ -27,12 +47,12 @@ export async function query<T = any>(
 ): Promise<QueryResult<T>> {
   const start = Date.now();
   try {
-    const result = await pool.query<T>(text, params);
+    const result = await getPool().query<T>(text, params);
     const duration = Date.now() - start;
-    console.log('Executed query', { text, duration, rows: result.rowCount });
+    console.log('✓ Query executed', { duration: `${duration}ms`, rows: result.rowCount });
     return result;
   } catch (error) {
-    console.error('Database query error:', error);
+    console.error('❌ Database query error:', error);
     throw error;
   }
 }
@@ -55,4 +75,4 @@ export async function queryMany<T = any>(
   return result.rows;
 }
 
-export default pool;
+export default getPool();
