@@ -1,21 +1,9 @@
 import { RequestHandler } from "express";
-import { createClient } from "@supabase/supabase-js";
-
-// Create Supabase client dynamically to ensure env vars are loaded
-function getSupabaseClient() {
-  const supabaseUrl = process.env.SUPABASE_URL || "";
-  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || "";
-
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error('Missing Supabase credentials. Please check SUPABASE_URL and SUPABASE_ANON_KEY environment variables.');
-  }
-
-  return createClient(supabaseUrl, supabaseAnonKey);
-}
+import { queryOne, queryMany, query } from "../lib/db";
 
 /**
  * Register a new user
- * Inserts user data into Supabase users table
+ * Inserts user data into PostgreSQL users table
  */
 export const handleRegister: RequestHandler = async (req, res) => {
   try {
@@ -55,48 +43,36 @@ export const handleRegister: RequestHandler = async (req, res) => {
     }
 
     // Insert into users table
-    const { data, error } = await getSupabaseClient()
-      .from("users")
-      .insert([
-        {
-          first_name,
-          last_name,
-          birth_date,
-          gender,
-          user_phone,
-          patrol_id,
-          role_id,
-          is_high_patrol: is_high_patrol || false,
-          guardian_first_name,
-          guardian_last_name,
-          guardian_relationship,
-          guardian_relationship_other,
-          guardian_cin,
-          father_phone,
-          mother_phone,
-          home_phone,
-          additional_info,
-          password,
-        },
-      ])
-      .select()
-      .single();
+    const result = await query(
+      `INSERT INTO users (
+        first_name, last_name, birth_date, gender, user_phone, patrol_id, role_id,
+        is_high_patrol, guardian_first_name, guardian_last_name, guardian_relationship,
+        guardian_relationship_other, guardian_cin, father_phone, mother_phone, home_phone,
+        additional_info, password
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+      RETURNING id, generated_id, first_name, last_name, user_phone, gender`,
+      [
+        first_name, last_name, birth_date, gender, user_phone, patrol_id, role_id,
+        is_high_patrol || false, guardian_first_name, guardian_last_name,
+        guardian_relationship, guardian_relationship_other, guardian_cin,
+        father_phone, mother_phone, home_phone, additional_info, password
+      ]
+    );
 
-    if (error) {
-      console.error("Supabase error:", error);
-      return res
-        .status(400)
-        .json({ error: error.message || "Registration failed" });
+    if (result.rows.length === 0) {
+      return res.status(400).json({ error: "Registration failed" });
     }
+
+    const user = result.rows[0];
 
     // Return user data
     res.json({
-      id: data.id,
-      generated_id: data.generated_id,
-      first_name: data.first_name,
-      last_name: data.last_name,
-      user_phone: data.user_phone,
-      gender: data.gender,
+      id: user.id,
+      generated_id: user.generated_id,
+      first_name: user.first_name,
+      last_name: user.last_name,
+      user_phone: user.user_phone,
+      gender: user.gender,
     });
   } catch (error) {
     console.error("Error registering user:", error);
@@ -106,11 +82,13 @@ export const handleRegister: RequestHandler = async (req, res) => {
 
 /**
  * Login user
- * Validates first_name, last_name, generated_id, and password against Supabase users table
+ * Validates first_name, last_name, generated_id, and password against PostgreSQL users table
  */
 export const handleLogin: RequestHandler = async (req, res) => {
   try {
     const { first_name, last_name, generated_id, password } = req.body;
+
+    console.log('🔐 Login attempt:', { first_name, last_name, generated_id, password });
 
     // Validate required fields
     if (!first_name || !last_name || !generated_id || !password) {
@@ -120,16 +98,18 @@ export const handleLogin: RequestHandler = async (req, res) => {
     }
 
     // Query users table to find user with matching first_name, last_name and generated_id
-    const { data, error } = await getSupabaseClient()
-      .from("users")
-      .select("*")
-      .eq("first_name", first_name)
-      .eq("last_name", last_name)
-      .eq("generated_id", generated_id)
-      .single();
+    console.log('🔍 Searching for user with:', { first_name, last_name, generated_id });
 
-    if (error || !data) {
-      console.error("Login error - user not found:", error);
+    const user = await queryOne(
+      `SELECT * FROM users
+       WHERE first_name = $1 AND last_name = $2 AND generated_id = $3`,
+      [first_name, last_name, generated_id]
+    );
+
+    console.log('📊 Query result:', user ? 'User found' : 'User NOT found');
+
+    if (!user) {
+      console.error("❌ Login error - user not found with:", { first_name, last_name, generated_id });
       return res.status(401).json({
         error: "بيانات الدخول غير صحيحة - تأكد من الاسم ورقم العضو"
       });
@@ -138,7 +118,7 @@ export const handleLogin: RequestHandler = async (req, res) => {
     // Verify password (simple comparison - في الإنتاج يجب استخدام bcrypt)
     // For now, we're using a simple password check
     // In production, passwords should be hashed
-    if (password !== data.password) {
+    if (password !== user.password) {
       return res.status(401).json({
         error: "كلمة المرور غير صحيحة"
       });
@@ -146,12 +126,12 @@ export const handleLogin: RequestHandler = async (req, res) => {
 
     // Return user data on successful login
     res.json({
-      id: data.id,
-      generated_id: data.generated_id,
-      first_name: data.first_name,
-      last_name: data.last_name,
-      user_phone: data.user_phone,
-      gender: data.gender,
+      id: user.id,
+      generated_id: user.generated_id,
+      first_name: user.first_name,
+      last_name: user.last_name,
+      user_phone: user.user_phone,
+      gender: user.gender,
     });
   } catch (error) {
     console.error("Error logging in:", error);
@@ -171,23 +151,22 @@ export const handleGetProfile: RequestHandler = async (req, res) => {
       return res.status(400).json({ error: "Generated ID is required" });
     }
 
-    const { data, error } = await getSupabaseClient()
-      .from("users")
-      .select("*")
-      .eq("generated_id", generated_id)
-      .single();
+    const user = await queryOne(
+      `SELECT * FROM users WHERE generated_id = $1`,
+      [generated_id]
+    );
 
-    if (error || !data) {
+    if (!user) {
       return res.status(404).json({ error: "User not found" });
     }
 
     res.json({
-      id: data.id,
-      generated_id: data.generated_id,
-      first_name: data.first_name,
-      last_name: data.last_name,
-      user_phone: data.user_phone,
-      gender: data.gender,
+      id: user.id,
+      generated_id: user.generated_id,
+      first_name: user.first_name,
+      last_name: user.last_name,
+      user_phone: user.user_phone,
+      gender: user.gender,
     });
   } catch (error) {
     console.error("Error getting profile:", error);
@@ -197,7 +176,7 @@ export const handleGetProfile: RequestHandler = async (req, res) => {
 
 /**
  * Save PDF and QR code for a user
- * Stores the PDF and QR code data in Supabase
+ * Stores the PDF and QR code data in PostgreSQL
  */
 export const handleSavePdfQrCode: RequestHandler = async (req, res) => {
   try {
@@ -213,32 +192,28 @@ export const handleSavePdfQrCode: RequestHandler = async (req, res) => {
     }
 
     // Update user with PDF and QR code URLs
-    const { data, error } = await getSupabaseClient()
-      .from("users")
-      .update({
-        pdf_url,
-        qr_code_url,
-        documents_generated_at: new Date().toISOString(),
-      })
-      .eq("id", user_id)
-      .select()
-      .single();
+    const result = await query(
+      `UPDATE users 
+       SET pdf_url = $1, qr_code_url = $2, documents_generated_at = NOW()
+       WHERE id = $3
+       RETURNING id, generated_id, pdf_url, qr_code_url`,
+      [pdf_url, qr_code_url, user_id]
+    );
 
-    if (error) {
-      console.error("Supabase error:", error);
-      return res
-        .status(400)
-        .json({ error: error.message || "Failed to save documents" });
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "User not found" });
     }
+
+    const user = result.rows[0];
 
     res.json({
       success: true,
       message: "PDF and QR code saved successfully",
       user: {
-        id: data.id,
-        generated_id: data.generated_id,
-        pdf_url: data.pdf_url,
-        qr_code_url: data.qr_code_url,
+        id: user.id,
+        generated_id: user.generated_id,
+        pdf_url: user.pdf_url,
+        qr_code_url: user.qr_code_url,
       },
     });
   } catch (error) {
